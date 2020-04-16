@@ -35,7 +35,7 @@ library('grid')
 
 As I mentioned on the [landing](https://svenhalvorson.github.io/party_page/portfolio/logistic_landing), the issue I sought to solve (or at least understand) is why my plots of logistic regression over aggregated data sometimes looked awful. Unfortunately, the [article](https://pdfs.semanticscholar.org/6807/8f0a3839b8d89cd25a964c03a571545793cb.pdf?_ga=2.241765888.362902951.1583340021-1552661845.1583340021) that my teammate gave me on marginal standardization didn't solve the main issue I was trying to fix. The difference between marginally standardized plots and plots with predictions at the mean were often similar and didn't address the weirdness I frequently saw.
 
-I'm a considerably better programmer than statistician so I think I'll simulate a data set and do some experiments with different types of covariates. We'll get a chance to try out this `simstudy` library that I saw on a blog. Here's the [vignette](https://cran.r-project.org/web/packages/simstudy/vignettes/simstudy.html) for reference. The code for these experiments can be founds [here](https://github.com/svenhalvorson/logistic_marginals/blob/master/logistic_marginals3.html).
+I'm a considerably better programmer than statistician so I think I'll simulate a data set and do some experiments with different types of covariates. We'll get a chance to try out this `simstudy` library that I saw on a blog. Here's the [vignette](https://cran.r-project.org/web/packages/simstudy/vignettes/simstudy.html) for reference. The code for these experiments can be founds [here](https://github.com/svenhalvorson/marg_std_and_simulations/blob/master/regression_simulation.Rmd).
 
 
 #### Simulation Description
