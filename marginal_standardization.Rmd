@@ -1,0 +1,447 @@
+---
+title: "Marginal Standardization for Logistic Models"
+author: "Sven Halvorson"
+date: "2020-03-19"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 4
+---
+
+After struggling to plot some logistic models on top of the aggregated data,  my teammate gave me [this paper](https://pdfs.semanticscholar.org/6807/8f0a3839b8d89cd25a964c03a571545793cb.pdf?_ga=2.241765888.362902951.1583340021-1552661845.1583340021)$^1$ as a potential solution. The concept, marginal standardization, didn't solve my problem but it was well worth learning so I created a little explainer on the concept.
+
+Our goals are:  
+1. Explain the concept of marginal standardization  
+2. Give an easy example of how to employ it and contrast it with prediction at the mean  
+3. Show some R code on how to do this with a more complex model  
+
+### Description of marginal standardization
+
+```{r setup, include=FALSE, warning = FALSE, message = FALSE}
+
+# Libraries ---------------------------------------------------------------
+
+### R Version & library path
+options(knitr.kable.NA = '')
+
+if(Sys.info()['login'] == 'halvors'){
+  library('SvenR')
+  .libPaths("C:/Users/HALVORS/Documents/rlibs")
+}
+# Libraries used
+library("tidyverse")
+library('kableExtra')
+library('fastDummies')
+
+```
+
+Marginal standardization is a technique for deriving population wide summary statistics from a multivariable model. The examples I will use involve logistic models because, as I will show, continuous outcomes are much simpler to work with. If we want to summarize the confoudner adjusted main (treatment) effect, we can just use the odds ratio produced by the treatment coefficient from the model. This, however, doesn't easily translate into some other measures such as a risk ratio or risk difference. The odds ratio does not contain any information about the absolute incidence, only the relative odds, and this is where one might want to use marginal standardization.
+
+Muller et al. give a very thorough explanation for how this is done in the case of a logistic model but I will give you the quick version. If we have a binary outcome $Y$, an exposure $E$, and a categorical confounder/covariate $Z$, then the marginally standardized probability of $Y = 1$ for exposure level $e$ is:
+
+$$P(Y=1|\textrm{Set}[E=e]) = \sum_z{P(Y=1|\textrm{Set}[E=e], Z=z)P(Z=z)}$$
+Here $\textrm{Set}[E=e]$ means 'set every observation at exposure level $e$.' I found this wording a bit tricky but what they mean is that we are going to run through every value of $Z$, say $z_i$, and use the model to predict $P(Y=1|E=e, Z = z_i)$, and then weight all these predictions by the relative frequency of $z_i$. The authors also mention that this extends easily to multiple covariates. This can be achieved by summing over every covariate pattern (combination of categorical covariates).
+
+### Distinction from prediction at the mean
+
+Let's go through the example the authors present of using a logistic model on a population where half the participants are men and half women. Exposed women have the event 50% of the time and exposed men have it 99% of the time. This is what our aggregated data set looks like:
+
+```{r non_example, echo = FALSE}
+
+gender_dat = tibble(
+  female = rep(
+    c(0, 1),
+    each = 100
+  ),
+  outcome = c(
+    rep(1, times = 99),
+    0,
+    rep(
+      c(1,0),
+      times = 50
+    )
+  )
+)
+
+gender_dat %>% 
+  count(female, outcome) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+  
+```
+
+Now we can create a logistic model of the outcome with gender as our only predictor:
+
+```{r non_example_mod, echo = TRUE}
+gender_mod = glm(
+  outcome ~  female,
+  family = 'binomial',
+  data = gender_dat
+)
+
+```
+
+**Method 1: Marginal standardization**
+
+We predict the probability for each gender, then weight them according to their frequency in the data set.
+
+```{r non_example_mod3, echo = TRUE}
+marg_prob = predict.glm(
+  object = gender_mod,
+  newdata = tibble(female = c(0, 1)),
+  type = 'response'
+)
+
+marg_prob = sum(
+  c(0.5, 0.5)*marg_prob
+)
+round(100*marg_prob, 1)
+
+```
+
+This makes sense, right? We have about 100% and 50% outcomes and a 50-50 split so the overall chance should be about 75%.
+
+**Method 2: Prediction at the mode of gender**
+
+The authors suggest another method which is predicts at the mode of all the categorical predictors. I didn't even consider this as it seems obvious that it's going to completely fail unless the population is very homogeneous. It's also not clear how you would even use that in the case of a 50-50 split like our example. NEXT!
+
+**Method 3: Prediction at the mean of gender**
+
+Another method suggested was to take an average of the binary predictors and then feed that to our model. Myself and several other statistically skilled people fell into this trap and it is probably why the paper was written.
+
+In our case, we are going to predict the probability of the outcome for a 50% female individual because half of our population are women:
+
+```{r non_example_mod2, echo = TRUE}
+mean_prob = predict.glm(
+  object = gender_mod,
+  newdata = tibble(female = 0.5),
+  type = 'response'
+) %>% 
+ unname()
+
+round(100*mean_prob, 1)
+
+```
+
+The result is wildly different and intuitively wrong. What's the most intuitive way to do this without all this fancy schmantzy logistic regression? Just use the law of total probability:
+
+```{r non_example_ez, echo = TRUE}
+
+ez_calc = 0.5*0.99 + 0.5*0.5
+round(100*ez_calc, 1)
+
+```
+
+This gives the exact same result as the marginal standardization.
+
+So why is this happening? The logic behind marginal standardization isn't too hard to grasp but the author doesn't give a very satisfying answer to why prediction at the mean *doesn't* work. They simply state that we're making predictions from impossible data points. There are no 50% females (at least in the data set).
+
+The most insightful thing that I've been able to come up with as to why our intuition is confused is just looking at the algebra. If we compute the overall odds we get this:
+
+$$\textrm{Overall Odds}=\frac{99+50}{1+50} = 2.92$$
+
+Computing the odds using prediction at the mean starts with the logistic model:
+$$\log(\frac{p}{1-p})=\beta_0+\beta_1(\textrm{female = 1})$$
+$$\frac{p}{1-p}=e^{\beta_0+\beta_1(\textrm{female = 1})}$$
+If we substitute in 0.5 for female, we get this:
+$$\frac{p}{1-p}=e^{\beta_0+\beta_1\cdot0.5}=e^{\beta_0}\sqrt{e^{\beta_1}} $$
+So this would be saying that to compute the overall odds, we take the odds of the outcome for men and multiply it by the square root of the odds ratio of women to men. Note the square root is only because we have a 50-50 split of women to men, otherwise it will be some other fractional power.
+
+This gives us the same predicted probability as the code above:
+$$\frac{p}{1-p}=\frac{99}{1}\sqrt{\frac{\frac{50}{50}}{\frac{99}{1}}} = 9.95$$
+
+$$\frac{9.95}{1+9.95}=0.909$$
+
+It just seems hard to explain why you would want to exponentiate the odds ratio for the second group by the relative frequency of that group in order to compute the overall odds. With marginal standardization we're using a classic weighted average to account for the global frequencies.  This isn't all that satisfying but it does at least make prediction at the mean (method 3) seem more bizarre.
+
+Framing it this way does let us see how, as Muller notes, having a low correlation between the predictor and outcome will cause this to be very similar to the marginal method. If $e^{\beta_1}\approx1$:
+
+$$\frac{p}{1-p}=e^{\beta_0+\beta_1\cdot P(X=1)} \approx e^{\beta_0}\cdot 1^{P(X =1)}\approx e^{\beta_0}$$
+And if the relationship between $X$ and $Y$ is very weak, the odds of $Y$ should be about the same when $X = 0$ as when $X = 1$.
+
+Another question we might ask is 'does this matter for continuous outcomes?' The answer to this is a clean 'no'. If you have a model like:
+
+$$Y=\beta_0+\beta_1(\textrm{female = 1})$$
+Where Y is a continuous variable, then predicting with marginal standardization gives:
+
+$$\hat{Y}=P(\textrm{female = 0})\beta_0 + P(\textrm{female = 1})[\beta_0+\beta_1]$$
+And this is exactly what you would get through prediction at the mean:
+
+$$P(\textrm{female = 0})\beta_0 + P(\textrm{female = 1})[\beta_0+\beta_1]= \beta_0 + P(\textrm{female =1})\beta_1$$
+
+I think that this is part of why people like myself made the mistake of thinking that predictions at the mean will work for logistic models. The problem is that the link function invalidates the calculation shown for a continuous outcome.
+
+### Computing marginally adjusted probabilities with larger models
+
+Computing the marginally adjusted probability with more predictors is conceptually similar but requires a bit more coding. Here I'll show an example with a variation on the `nycflights13::flights` data set that you can get through the corresponding library. It has a list of a lot of flights out of NYC in 2013. We'll make our outcome variable whether or not the flight departed late (`dep_delay > 0`) and use the flight distance, whether the scheduled departure was after noon (`sched_dep_time >= 1200`), the departing airport, and the carrier as predictors. I've dropped observations with a missing outcome or predictor. I've also made dummies for the airport and carrier where Newark and Endeavor Air are their respective reference categories.
+
+Here's some of the data set we'll use:
+
+```{r make_flights, echo = FALSE}
+
+flights_ex = nycflights13::flights %>% 
+  mutate(
+    late = as.numeric(dep_delay > 0),
+    pm = as.numeric(sched_dep_time >= 1200)
+  ) %>% 
+  dummy_cols(
+    select_columns = c('origin'),
+    remove_first_dummy = TRUE
+  ) %>% 
+  dummy_cols(
+    select_columns = c('carrier'),
+    remove_first_dummy = TRUE
+  ) %>% 
+  select(
+    late,
+    distance,
+    pm,
+    matches('origin_'),
+    matches('carrier_')
+  ) %>% 
+  drop_na() 
+```
+
+```{r show_flights, echo = FALSE}
+set.seed(2)
+flights_ex  %>% 
+  sample_n(10) %>% 
+  mutate(`... ` = '') %>% 
+  select(late, distance, pm, matches('origin'), carrier_AA, carrier_B6, `... `, carrier_YV) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+
+```
+
+Here's the model we'll use:
+
+```{r flights_mod, echo = TRUE}
+
+form = flights_ex %>% 
+  select(-late) %>% 
+  colnames() %>% 
+  paste(collapse = ' + ')
+
+form = paste0('late ~ ', form) 
+
+flight_mod = glm(
+  as.formula(form),
+  family = 'binomial',
+  data = flights_ex
+)
+
+```
+
+For reference, we can compute the probability of leaving late:
+
+```{r show_late, echo = TRUE}
+
+round(100*mean(flights_ex[['late']]), 1)
+
+```
+
+To use the marginal standardization method, we will use the law of total probability again. There are many possible combinations of the categorical variables (3 airports, am or pm, and 16 carriers) that we have to sum across. Start by computing the relative frequencies of each combination within our data set. Here is a sample 10 combinations:
+
+```{r flight_rel_freq, echo = TRUE}
+
+rel_freq = flights_ex %>% 
+  select(
+    pm,
+    matches('origin_'),
+    matches('carrier_')
+  ) %>% 
+  group_by_all() %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(
+    rel_freq = n/sum(n)
+  )
+
+```
+
+```{r show_flight_rel_freq, echo = FALSE}
+
+samp = sample(1:nrow(rel_freq), size = 10, replace = FALSE)
+rel_freq[samp,] %>% 
+  mutate(
+    `... ` = '',
+    rel_freq = round(rel_freq, 3),
+    n = format(
+      n, 
+      big.mark = ',',
+      scientific = FALSE
+    )
+  ) %>% 
+  select(pm, matches('origin'), carrier_AA, carrier_B6, `... `, carrier_YV, n, rel_freq) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+  
+```
+
+Now we take this matrix, tack on the means of the continuous variables (just distance in this case), and then make the predictions from the model:
+
+```{r flight_marginal_prob, echo = TRUE}
+
+rel_freq = rel_freq %>% 
+  mutate(
+    distance = mean(flights_ex[['distance']])
+  )
+rel_freq['predicted_prob'] = predict.glm(
+  flight_mod,
+  rel_freq,
+  type = 'response'
+)
+
+```
+
+```{r show_flight_marginal_prob, echo = FALSE}
+rel_freq[samp,] %>% 
+  mutate(
+    `... ` = '',
+    rel_freq = round(rel_freq, 3),
+    n = format(
+      n, 
+      big.mark = ',',
+      scientific = FALSE
+    ),
+     predicted_prob = round(predicted_prob, 3)
+  ) %>% 
+  select(distance, pm, matches('origin'), carrier_AA, carrier_B6, `... `, carrier_YV, n, rel_freq, predicted_prob) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+  
+```
+
+There is some real variation in the predicted probabilities between these combinations categorical variables. These differences will make the marginal method better than the means method.
+
+The final step is to just compute the weighted average of these predicted probabilities:
+
+```{r flight_marginal_prob2, echo = TRUE}
+rel_freq %>% 
+  summarize(
+    marg_predicted_prob = 100*sum(rel_freq*predicted_prob)
+  )
+
+```
+
+It's exactly the same as the computation without the model. What does the prediction at the means method yield? First compute the means of each variable:
+
+```{r flight_mean_prob, echo = TRUE}
+
+flight_means = flights_ex %>% 
+  select(
+    distance,
+    pm,
+    matches('origin_'),
+    matches('carrier_')
+  ) %>% 
+  summarize_all(
+    mean
+  )
+
+```
+
+```{r show_flight_means, echo = FALSE}
+flight_means %>% 
+  mutate_all(round, 3) %>% 
+  mutate( `... ` = '') %>% 
+  select(distance, pm, matches('origin'), carrier_AA, carrier_B6, `... `, carrier_YV) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+  
+```
+
+Then use this as your only data point to predict:
+
+```{r flight_mean_prob2, echo = TRUE}
+
+predict.glm(
+  flight_mod,
+  flight_means,
+  type = 'response'
+) %>% 
+  unname()
+
+```
+
+This prediction is off by about 1 percentage point. My suspicion is that the more categorical predictors we use and the more heavily they are correlated with the outcome, the large the gap between these two methods will become. As I mentioned before, the reason that this topic came to my attention was that I was trying to plot some logistic models with confounder adjustments and they ended up looking very poor. The difference between these two methods was proposed as a possible reason why the plots didn't fit well. In this case, however, the difference is small enough it is hard to even see on a graph. 
+
+You might be wondering why you would even do this if I was able to just compute the probabilities without the models. One reason is to compute other confounder adjusted summaries like a risk difference. Let's a compute the adjusted risk difference of leaving late between flights in the am vs pm. This time we'll exclude the pm flag from our computations of the relative frequencies of each covariate pattern:
+
+```{r flight_rel_freq_pm, echo = TRUE}
+
+rel_freq_pm = flights_ex %>% 
+  select(
+    matches('origin_'),
+    matches('carrier')
+  ) %>% 
+  group_by_all() %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(
+    rel_freq = n/sum(n)
+  )  %>% 
+  mutate(
+    distance = mean(flights_ex[['distance']])
+  ) %>% 
+  crossing(
+    tibble(
+      pm = 0:1
+    )
+  )
+
+  
+rel_freq_pm['predicted_prob'] = predict.glm(
+  flight_mod,
+  rel_freq_pm,
+  type = 'response'
+)
+
+rel_freq_pm %>% 
+  group_by(pm) %>% 
+  summarize(
+    predicted_prob = sum(rel_freq*predicted_prob)
+  ) %>% 
+  pivot_wider(
+    names_from = pm,
+    values_from = predicted_prob,
+    names_prefix = 'pm_'
+  ) %>% 
+  mutate(
+    RD = pm_1-pm_0
+  )
+
+```
+
+Our confounder adjusted model predicts that the difference in probability of leaving late is about 22 percentage points higher for flights leaving in the PM. This is a little different than the undadjusted risk difference:
+
+```{r unadjust_rd, echo = TRUE}
+
+flights_ex %>% 
+  group_by(pm) %>% 
+  summarize(
+    late = mean(late)
+  ) %>% 
+  mutate(pm = ifelse(pm == 1, 'pm', 'am')) %>% 
+  pivot_wider(
+    names_from = pm,
+    values_from = late
+  ) %>% 
+  mutate(RD = pm-am)
+
+```
+
+
+### Conclusion
+
+Even though this didn't solve the main problem that I was after, I'm glad to have learned this concept. The main takeaways are:
+
+1. Marginal standardization is different and superior to prediction at the mean for logistic models  
+2. It can be achieved weighting predicted probabilities of each covariate pattern by their relative frequencies.  
+3. This is most useful when computing confounder adjusted population statistics other than the odds ratio.
+
+**Work Cited**
+
+1. Clemma J Muller, Richard F MacLehose, Estimating predicted probabilities from logistic regression: different methods correspond to different target populations, International Journal of Epidemiology, Volume 43, Issue 3, June 2014, Pages 962–970
+
+Full code of this blurb can be found [here](https://github.com/svenhalvorson/logistic_marginals/blob/master/marginal_standardization.Rmd)
