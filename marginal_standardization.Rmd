@@ -8,7 +8,7 @@ output:
     toc_depth: 4
 ---
 
-After struggling to plot some logistic models on top of the aggregated data,  my teammate gave me [this paper](https://pdfs.semanticscholar.org/6807/8f0a3839b8d89cd25a964c03a571545793cb.pdf?_ga=2.241765888.362902951.1583340021-1552661845.1583340021)$^1$ as a potential solution. The concept, marginal standardization, didn't solve my problem but it was well worth learning so I created a little explainer on the concept.
+After struggling to plot some logistic models on top of the aggregated data,  my teammate gave me [this paper](https://pdfs.semanticscholar.org/6807/8f0a3839b8d89cd25a964c03a571545793cb.pdf?_ga=2.241765888.362902951.1583340021-1552661845.1583340021)$^1$ as a potential solution. The concept, marginal standardization, didn't solve my problem but it was well worth learning so I created a little explainer.
 
 Our goals are:  
 1. Explain the concept of marginal standardization  
@@ -444,4 +444,4 @@ Even though this didn't solve the main problem that I was after, I'm glad to hav
 
 1. Clemma J Muller, Richard F MacLehose, Estimating predicted probabilities from logistic regression: different methods correspond to different target populations, International Journal of Epidemiology, Volume 43, Issue 3, June 2014, Pages 962–970
 
-Full code of this blurb can be found [here](https://github.com/svenhalvorson/logistic_marginals/blob/master/marginal_standardization.Rmd)
+Full code of this blurb can be found [here](https://github.com/svenhalvorson/marg_std_and_simulations/blob/master/marginal_standardization.Rmd)
